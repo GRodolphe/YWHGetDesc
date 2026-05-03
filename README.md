@@ -16,8 +16,6 @@ A Chrome extension to extract program descriptions from [YesWeHack](https://yesw
   - Qualifying and non-qualifying vulnerability types
   - User-agent requirement
 
-![example](img/example.png)
-
 ## Installation
 
 ### From release (recommended)
