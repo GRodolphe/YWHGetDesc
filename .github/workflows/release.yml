@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Update manifest version
+        run: |
+          jq --arg v "${{ steps.version.outputs.version }}" '.version = $v' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+
+      - name: Build extension zip
+        run: |
+          zip -r "YWHGetDesc-${{ steps.version.outputs.version }}.zip" \
+            manifest.json content.js popup.html popup.js icons/
+
+      - name: Install CycloneDX CLI
+        run: |
+          curl -sSfL https://github.com/CycloneDX/cyclonedx-cli/releases/latest/download/cyclonedx-linux-x64 -o /usr/local/bin/cyclonedx
+          chmod +x /usr/local/bin/cyclonedx
+
+      - name: Generate SBOM
+        run: |
+          cat > sbom-seed.json << 'SEED'
+          {
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.5",
+            "version": 1,
+            "metadata": {
+              "component": {
+                "type": "application",
+                "name": "YWHGetDesc",
+                "version": "${{ steps.version.outputs.version }}",
+                "description": "Chrome extension to extract YesWeHack program descriptions",
+                "licenses": [{ "license": { "id": "MIT" } }]
+              }
+            },
+            "components": [
+              {
+                "type": "application",
+                "name": "content.js",
+                "version": "${{ steps.version.outputs.version }}",
+                "description": "Content script - DOM extraction logic"
+              },
+              {
+                "type": "application",
+                "name": "popup.js",
+                "version": "${{ steps.version.outputs.version }}",
+                "description": "Popup UI logic and download handling"
+              },
+              {
+                "type": "application",
+                "name": "popup.html",
+                "version": "${{ steps.version.outputs.version }}",
+                "description": "Extension popup markup and styles"
+              }
+            ]
+          }
+          SEED
+          # Validate and convert to final SBOM
+          cyclonedx validate --input-file sbom-seed.json --input-format json --fail-on-errors || true
+          cp sbom-seed.json "YWHGetDesc-${{ steps.version.outputs.version }}.sbom.json"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            YWHGetDesc-${{ steps.version.outputs.version }}.zip
+            YWHGetDesc-${{ steps.version.outputs.version }}.sbom.json
